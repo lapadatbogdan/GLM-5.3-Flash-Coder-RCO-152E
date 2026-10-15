@@ -1,0 +1,213 @@
+diff --git a/conversion/glm.py b/conversion/glm.py
+index 10f3ef1..9916a01 100644
+--- a/conversion/glm.py
++++ b/conversion/glm.py
+@@ -514,6 +514,22 @@ class Glm5NextModel(TextModel):
+         if (limit := hp.get("swiglu_limit")) is not None:
+             self.gguf_writer.add_swiglu_clamp_exp([limit] * self.block_count)
+             self.gguf_writer.add_swiglu_clamp_shexp([limit] * self.block_count)
++        if (per_layer := self._experts_per_layer()) is not None:
++            # expert_count (written by the base class) stays the max for scalar readers
++            assert max(per_layer) == hp["n_routed_experts"], (max(per_layer), hp["n_routed_experts"])
++            self.gguf_writer.add_expert_count_per_layer(per_layer)
++
++    def _experts_per_layer(self) -> list[int] | None:
++        """build_pruned.py --per-layer: routed experts per block (decoder layers, then MTP), 0 = dense."""
++        per_layer = self.hparams.get("n_routed_experts_per_layer")
++        if per_layer is None:
++            return None
++        n_main = self.hparams["num_hidden_layers"]
++        n_mtp = self.hparams.get("num_nextn_predict_layers", 0)
++        assert len(per_layer) == n_main + n_mtp, f"n_routed_experts_per_layer has {len(per_layer)} entries, expected {n_main + n_mtp}"
++        per_layer = list(per_layer[:self.block_count])  # MTP entries dropped with the MTP layers
++        assert len(per_layer) == self.block_count
++        return per_layer
+ 
+     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+         if name == "lm_head.weight" and self.hparams.get("tie_word_embeddings", False):
+@@ -521,8 +537,9 @@ class Glm5NextModel(TextModel):
+ 
+         # routed experts
+         if ".mlp.experts." in name:
+-            n_experts = self.hparams["n_routed_experts"]
+             assert bid is not None
++            per_layer = self._experts_per_layer()
++            n_experts = self.hparams["n_routed_experts"] if per_layer is None else per_layer[bid]
+             if self._experts is None:
+                 self._experts = [{} for _ in range(self.block_count)]
+             self._experts[bid][name] = data_torch
+diff --git a/gguf-py/gguf/constants.py b/gguf-py/gguf/constants.py
+index c003ed2..3abcf90 100644
+--- a/gguf-py/gguf/constants.py
++++ b/gguf-py/gguf/constants.py
+@@ -120,6 +120,7 @@ class Keys:
+         USE_PARALLEL_RESIDUAL             = "{arch}.use_parallel_residual"
+         TENSOR_DATA_LAYOUT                = "{arch}.tensor_data_layout"
+         EXPERT_COUNT                      = "{arch}.expert_count"
++        EXPERT_COUNT_PER_LAYER            = "{arch}.expert_count_per_layer"
+         EXPERT_USED_COUNT                 = "{arch}.expert_used_count"
+         EXPERT_SHARED_COUNT               = "{arch}.expert_shared_count"
+         EXPERT_GROUP_COUNT                = "{arch}.expert_group_count"
+diff --git a/gguf-py/gguf/gguf_writer.py b/gguf-py/gguf/gguf_writer.py
+index 3d063bb..9ca6890 100644
+--- a/gguf-py/gguf/gguf_writer.py
++++ b/gguf-py/gguf/gguf_writer.py
+@@ -878,6 +878,9 @@ class GGUFWriter:
+     def add_expert_count(self, count: int) -> None:
+         self.add_uint32(Keys.LLM.EXPERT_COUNT.format(arch=self.arch), count)
+ 
++    def add_expert_count_per_layer(self, counts: Sequence[int]) -> None:
++        self.add_array(Keys.LLM.EXPERT_COUNT_PER_LAYER.format(arch=self.arch), counts)
++
+     def add_expert_used_count(self, count: int | Sequence[int]) -> None:
+         if isinstance(count, int):
+             self.add_uint32(Keys.LLM.EXPERT_USED_COUNT.format(arch=self.arch), count)
+diff --git a/src/llama-arch.cpp b/src/llama-arch.cpp
+index 5774867..3966a18 100644
+--- a/src/llama-arch.cpp
++++ b/src/llama-arch.cpp
+@@ -214,6 +214,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
+     { LLM_KV_USE_PARALLEL_RESIDUAL,             "%s.use_parallel_residual"             },
+     { LLM_KV_TENSOR_DATA_LAYOUT,                "%s.tensor_data_layout"                },
+     { LLM_KV_EXPERT_COUNT,                      "%s.expert_count"                      },
++    { LLM_KV_EXPERT_COUNT_PER_LAYER,            "%s.expert_count_per_layer"            },
+     { LLM_KV_EXPERT_USED_COUNT,                 "%s.expert_used_count"                 },
+     { LLM_KV_EXPERT_SHARED_COUNT,               "%s.expert_shared_count"               },
+     { LLM_KV_EXPERT_GROUP_COUNT,                "%s.expert_group_count"                },
+diff --git a/src/llama-arch.h b/src/llama-arch.h
+index 1bf4744..61ac8d5 100644
+--- a/src/llama-arch.h
++++ b/src/llama-arch.h
+@@ -219,6 +219,7 @@ enum llm_kv {
+     LLM_KV_USE_PARALLEL_RESIDUAL,
+     LLM_KV_TENSOR_DATA_LAYOUT,
+     LLM_KV_EXPERT_COUNT,
++    LLM_KV_EXPERT_COUNT_PER_LAYER,
+     LLM_KV_EXPERT_USED_COUNT,
+     LLM_KV_EXPERT_SHARED_COUNT,
+     LLM_KV_EXPERT_GROUP_COUNT,
+diff --git a/src/llama-hparams.cpp b/src/llama-hparams.cpp
+index b83f45b..95f823a 100644
+--- a/src/llama-hparams.cpp
++++ b/src/llama-hparams.cpp
+@@ -87,6 +87,14 @@ uint32_t llama_hparams::n_expert_used(uint32_t il) const {
+     GGML_ABORT("fatal error");
+ }
+ 
++uint32_t llama_hparams::n_expert_l(uint32_t il) const {
++    if (il < n_layer_all) {
++        return n_expert_arr[il];
++    }
++
++    GGML_ABORT("fatal error");
++}
++
+ uint32_t llama_hparams::n_expert_used_max() const {
+     uint32_t val = 0;
+     for (uint32_t il = 0; il < n_layer_all; ++il) {
+diff --git a/src/llama-hparams.h b/src/llama-hparams.h
+index 98afe8a..9f51198 100644
+--- a/src/llama-hparams.h
++++ b/src/llama-hparams.h
+@@ -106,6 +106,8 @@ struct llama_hparams {
+     std::array<uint32_t, LLAMA_MAX_LAYERS> n_ff_exp_arr;
+     // per-layer top-k expert routing count
+     std::array<uint32_t, LLAMA_MAX_LAYERS> n_expert_used_arr;
++    // per-layer routed expert count (expert_count_per_layer); defaults to n_expert on every layer
++    std::array<uint32_t, LLAMA_MAX_LAYERS> n_expert_arr;
+ 
+     uint32_t n_layer_dense_lead = 0;
+     uint32_t n_lora_q           = 0;
+@@ -420,6 +422,9 @@ struct llama_hparams {
+ 
+     uint32_t n_expert_used(uint32_t il = 0) const;
+ 
++    // routed experts in layer il (n_expert is the maximum over layers)
++    uint32_t n_expert_l(uint32_t il) const;
++
+     // return the maximum n_expert_used across all layers
+     uint32_t n_expert_used_max() const;
+ 
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index b3a0cf5..a806dcf 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -1357,6 +1357,8 @@ void llama_model_base::load_hparams(llama_model_loader & ml) {
+     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,    hparams.n_layer_nextn,   false);
+     GGML_ASSERT(hparams.n_layer_nextn <= hparams.n_layer_all);
+     ml.get_key(LLM_KV_EXPERT_COUNT,            hparams.n_expert,        false);
++    // archs that support expert_count_per_layer read it in load_arch_hparams; all others stay uniform
++    std::fill(hparams.n_expert_arr.begin(), hparams.n_expert_arr.end(), hparams.n_expert);
+     std::fill(hparams.n_expert_used_arr.begin(), hparams.n_expert_used_arr.end(), 0);
+     ml.get_key_or_arr(LLM_KV_EXPERT_USED_COUNT, hparams.n_expert_used_arr, hparams.n_layer_all, false);
+     ml.get_key(LLM_KV_EXPERT_GROUP_COUNT,      hparams.n_expert_groups, false);
+@@ -2127,6 +2129,10 @@ void llama_model::print_info() const {
+         LLAMA_LOG_INFO("%s: f_attn_value_scale    = %.4f\n",   __func__, hparams.f_attn_value_scale);
+         LLAMA_LOG_INFO("%s: n_ff                  = %s\n",     __func__, print_f([&](uint32_t il) { return hparams.n_ff(il); }, hparams.n_layer_all).c_str());
+         LLAMA_LOG_INFO("%s: n_expert              = %u\n",     __func__, hparams.n_expert);
++        if (std::any_of(hparams.n_expert_arr.begin(), hparams.n_expert_arr.begin() + hparams.n_layer_all,
++                        [&](uint32_t n) { return n != hparams.n_expert; })) {
++            LLAMA_LOG_INFO("%s: n_expert_per_layer    = %s\n", __func__, print_f([&](uint32_t il) { return hparams.n_expert_l(il); }, hparams.n_layer_all).c_str());
++        }
+         LLAMA_LOG_INFO("%s: n_expert_used         = %u\n",     __func__, hparams.n_expert_used());
+         LLAMA_LOG_INFO("%s: n_expert_groups       = %d\n",     __func__, hparams.n_expert_groups);
+         LLAMA_LOG_INFO("%s: n_group_used          = %d\n",     __func__, hparams.n_group_used);
+diff --git a/src/models/glm5-next.cpp b/src/models/glm5-next.cpp
+index 48b07f1..7639cd6 100644
+--- a/src/models/glm5-next.cpp
++++ b/src/models/glm5-next.cpp
+@@ -28,6 +28,16 @@ void llama_model_glm5_next::load_arch_hparams(llama_model_loader & ml) {
+     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,       hparams.expert_weights_scale, false);
+     ml.get_key(LLM_KV_EXPERT_WEIGHTS_NORM,        hparams.expert_weights_norm, false);
+     ml.get_key(LLM_KV_EXPERT_GATING_FUNC,         hparams.expert_gating_func, false);
++
++    // routed experts per layer (pruned models); absent = n_expert everywhere. Dense layers hold 0.
++    ml.get_key_or_arr(LLM_KV_EXPERT_COUNT_PER_LAYER, hparams.n_expert_arr, hparams.n_layer_all, false);
++    for (uint32_t il = hparams.n_layer_dense_lead; il < hparams.n_layer_all; ++il) {
++        const uint32_t n_l = hparams.n_expert_l(il);
++        if (n_l < hparams.n_expert_used(il) || n_l > hparams.n_expert) {
++            throw std::runtime_error(format("layer %u: expert_count_per_layer %u outside [%u, %u]",
++                il, n_l, hparams.n_expert_used(il), hparams.n_expert));
++        }
++    }
+     if (hparams.expert_gating_func == LLAMA_EXPERT_GATING_FUNC_TYPE_NONE) {
+         hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID;
+     }
+@@ -159,13 +169,14 @@ void llama_model_glm5_next::load_arch_tensors(llama_model_loader & ml) {
+         } else {
+             const int64_t n_ff_exp        = hparams.n_ff_exp(i);
+             const int64_t n_expert_shared = hparams.n_expert_shared;
++            const int64_t n_expert_i      = hparams.n_expert_l(i);
+ 
+-            layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,    "weight", i), {n_embd, n_expert}, flags);
+-            layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias",   i), {n_expert}, flags);
++            layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,    "weight", i), {n_embd, n_expert_i}, flags);
++            layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias",   i), {n_expert_i}, flags);
+ 
+-            layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp, n_expert}, flags);
+-            layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert}, flags);
+-            layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {  n_embd, n_ff_exp, n_expert}, flags);
++            layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp, n_expert_i}, flags);
++            layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert_i}, flags);
++            layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {  n_embd, n_ff_exp, n_expert_i}, flags);
+ 
+             layer.ffn_gate_shexp = create_tensor(tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), {n_embd, n_ff_exp * n_expert_shared}, flags);
+             layer.ffn_down_shexp = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {        n_ff_exp * n_expert_shared, n_embd}, flags);
+@@ -624,7 +635,7 @@ llama_model_glm5_next::graph_mtp::graph_mtp(const llama_model & model, const llm
+             layer.ffn_gate_exps,
+             layer.ffn_down_exps,
+             layer.ffn_exp_probs_b,
+-            n_expert, n_expert_used,
++            hparams.n_expert_l(il), std::min<int64_t>(n_expert_used, hparams.n_expert_l(il)),
+             LLM_FFN_SILU, hparams.expert_weights_norm,
+             hparams.expert_weights_scale,
+             (llama_expert_gating_func_type) hparams.expert_gating_func,
+@@ -746,7 +757,7 @@ llama_model_glm5_next::graph::graph(const llama_model & model, const llm_graph_p
+                     layer.ffn_gate_exps,
+                     layer.ffn_down_exps,
+                     layer.ffn_exp_probs_b,
+-                    n_expert, n_expert_used,
++                    hparams.n_expert_l(il), std::min<int64_t>(n_expert_used, hparams.n_expert_l(il)),
+                     LLM_FFN_SILU, hparams.expert_weights_norm,
+                     hparams.expert_weights_scale,
+                     (llama_expert_gating_func_type) hparams.expert_gating_func,

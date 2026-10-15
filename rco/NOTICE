@@ -1,0 +1,7 @@
+This directory is based on the RCO reference implementation
+https://github.com/IST-DASLab/RCO (commit 9a1e09c), Apache-2.0, by Michael Helcig and Dan Alistarh.
+
+Changes by Bogdan Lapadat, 2026:
+- added: src/glm5_next_rco.py (GLM-5.3-Flash model code for scoring and search, incl. rerouting of pruned experts),
+  rco_glm_prune.py, reap_score.py, freq_masks.py, mask_now.py and the *.sbatch job files;
+- modified: src/search/prune.py.

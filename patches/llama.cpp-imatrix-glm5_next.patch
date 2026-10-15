@@ -1,0 +1,21 @@
+diff --git a/tools/imatrix/imatrix.cpp b/tools/imatrix/imatrix.cpp
+index 5e9f911..55381f9 100644
+--- a/tools/imatrix/imatrix.cpp
++++ b/tools/imatrix/imatrix.cpp
+@@ -563,6 +563,16 @@ bool IMatrixCollector::collect_imatrix(struct ggml_tensor * t, bool ask, void *
+ 
+     const struct ggml_tensor * src0 = t->src[0];
+     const struct ggml_tensor * src1 = t->src[1];
++
++    // only matrix multiplications are collected; some graphs (e.g. glm5_next) contain nodes without src[0],
++    // so check the op and the operands before reading the weight name
++    if (t->op != GGML_OP_MUL_MAT && t->op != GGML_OP_MUL_MAT_ID) {
++        return false;
++    }
++    if (src0 == nullptr || src1 == nullptr) {
++        return false;
++    }
++
+     std::string wname = filter_tensor_name(src0->name);
+ 
+     const int32_t chunk_size = m_params.n_ctx / m_params.n_parallel;
