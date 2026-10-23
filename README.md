@@ -14,7 +14,7 @@ paths; expect to adapt them (see [Paths](#paths)).
 | | REAP144 (old) | RCO-152E (this release) |
 |---|---|---|
 | Loop test: problems in 30 hard instruction-following runs | 22 | **4** (0 repetition loops) |
-| 17 x 23, 1234 x 5678, Fibonacci, small executed code task, tool call | arithmetic errors | **pass** at every quant |
+| 17 x 23, 1234 x 5678, Fibonacci, small executed code task, tool call | arithmetic errors | **pass** at every quant (Q3_K missed Fibonacci once in one run) |
 | Experts per layer | 144 | 152 (incl. 8 generalists) |
 | Calibration | Python agentic sessions | agentic sessions + code in 21 languages + math + 15% general text |
 
