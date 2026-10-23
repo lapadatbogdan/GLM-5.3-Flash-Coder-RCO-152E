@@ -1,0 +1,56 @@
+diff --git a/src/llama-batch.cpp b/src/llama-batch.cpp
+index ecd48dd..8963f4f 100644
+--- a/src/llama-batch.cpp
++++ b/src/llama-batch.cpp
+@@ -541,6 +541,14 @@ uint32_t llama_batch_allocr::get_n_outputs() const {
+     return n_outputs;
+ }
+ 
++uint32_t llama_batch_allocr::get_n_used_seqs() const {
++    uint32_t n = 0;
++    for (const auto & p : seq_pos) {
++        n += p.empty() ? 0 : 1;
++    }
++    return n;
++}
++
+ uint32_t llama_batch_allocr::get_n_used() const {
+     return n_used;
+ }
+diff --git a/src/llama-batch.h b/src/llama-batch.h
+index ff62e26..c64d95b 100644
+--- a/src/llama-batch.h
++++ b/src/llama-batch.h
+@@ -157,6 +157,7 @@ public:
+     uint32_t get_n_tokens()  const;
+     uint32_t get_n_outputs() const;
+     uint32_t get_n_used()    const;
++    uint32_t get_n_used_seqs() const; // sequences with at least one token in the batch
+ 
+     // the array of output indices in the order they were encountered during the ubatch splitting
+     std::vector<int32_t> & get_out_ids();
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 7e69744..2216c4c 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -1826,8 +1826,19 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
+ 
+     llama_memory_context_ptr mctx;
+ 
++    // decode micro-batching (LLAMA_DECODE_MICROBATCH=k): a batch of at most k tokens per sequence of pure decode steps
++    // is cut into k micro-batches so the layer-split pipeline overlaps them across devices; prompt batches keep n_ubatch
++    uint32_t n_ubatch_eff = cparams.n_ubatch;
++    {
++        static const int mb_k = [] { const char * e = getenv("LLAMA_DECODE_MICROBATCH"); return e ? atoi(e) : 0; }();
++        const uint32_t n_seqs_in = balloc->get_n_used_seqs();
++        if (mb_k > 1 && n_seqs_in > 1 && n_tokens_all <= 4*n_seqs_in) {
++            n_ubatch_eff = std::max<uint32_t>(1, (n_tokens_all + mb_k - 1) / mb_k);
++        }
++    }
++
+     while (true) {
+-        mctx = memory->init_batch(*balloc, cparams.n_ubatch, output_all);
++        mctx = memory->init_batch(*balloc, n_ubatch_eff, output_all);
+         if (!mctx) {
+             return -2;
+         }

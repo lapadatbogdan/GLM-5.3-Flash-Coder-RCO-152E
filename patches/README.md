@@ -37,3 +37,29 @@ patched build vs the padded GGUF on the unpatched build gives bit-identical logi
 patched vs unpatched; imatrix of the real experts identical to the padded one; Q4_K_M with imatrix runs.
 Negative control: without the min() clamp, warmup aborts at `ggml.c:5455 GGML_ASSERT(a->ne[0] >= k)` on the 8-expert layer.
 Test scripts: `../../perlayer/` (make_mini_src.py, dump_logits.cpp, step1-3 scripts, test_loader_perlayer.py).
+
+**Not needed for this release:** RCO-152E keeps 152 experts in every layer, so the stock loader works.
+
+# llama.cpp patch: decode micro-batching for multi-sequence serving
+
+`llama.cpp-decode-microbatch.patch` (on top of `79e2e74`, independent of the other two patches; touches only
+`src/llama-context.cpp`, `src/llama-batch.h`, `src/llama-batch.cpp`).
+
+**Problem.** With the model split by layers across several GPUs (`-sm layer`), a decode step for many concurrent
+conversations is one batch that walks through the GPUs one after another: while GPU k works on its layers, the others
+wait. More concurrent conversations do not fill the idle GPUs.
+
+**Fix.** With the environment variable `LLAMA_DECODE_MICROBATCH=k` (k > 1), `llama_context::decode` cuts a batch into k
+micro-batches (ubatch size = ceil(n_tokens / k)) when the batch holds tokens from more than one sequence and at most 4
+tokens per sequence, i.e. a pure decode step. The layer-split pipeline then overlaps the micro-batches across the GPUs.
+Prompt processing batches keep the normal `n_ubatch`. Unset or `k <= 1`: behaviour unchanged.
+
+**Measured.** 8 concurrent conversations on 8 MI250X GCDs (one llama-server, layer split), aggregate generation speed
+per node: 25.6 tokens/s unpatched, 54.9 tokens/s with `LLAMA_DECODE_MICROBATCH=4`.
+
+**Apply.**
+```
+cd llama.cpp && git apply /path/to/llama.cpp-decode-microbatch.patch
+LLAMA_DECODE_MICROBATCH=4 llama-server -m model.gguf -sm layer --parallel 8 ...
+```
+`swepro/run_bench_v2.sh` passes `LLAMA_DECODE_MICROBATCH` through to the server (default 0 = off).

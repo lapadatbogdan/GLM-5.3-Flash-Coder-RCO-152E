@@ -1,0 +1,284 @@
+{
+ "files": [
+  "/work/glm53/calib53/mix_v1/gen/turns_shard0.jsonl",
+  "/work/glm53/calib53/mix_v1/gen/turns_shard1.jsonl",
+  "/work/glm53/calib53/mix_v1/gen/turns_shard2.jsonl",
+  "/work/glm53/calib53/mix_v1/gen/turns_shard3.jsonl",
+  "/work/glm53/calib53/mix_v2/gen/turns_shard0.jsonl",
+  "/work/glm53/calib53/mix_v2/gen/turns_shard1.jsonl",
+  "/work/glm53/calib53/mix_v2/gen/turns_shard2.jsonl",
+  "/work/glm53/calib53/mix_v2/gen/turns_shard3.jsonl",
+  "/work/glm53/calib53/mix_v3/gen/turns_shard0.jsonl",
+  "/work/glm53/calib53/mix_v3/gen/turns_shard1.jsonl",
+  "/work/glm53/calib53/mix_v3/gen/turns_shard2.jsonl"
+ ],
+ "render_failures": {},
+ "windows": {
+  "agentic": 1033,
+  "code": 1236,
+  "math": 284,
+  "general": 276
+ },
+ "groups": {
+  "agentic": {
+   "NodeBB/NodeBB": {
+    "tasks": 20,
+    "windows": 223
+   },
+   "ansible/ansible": {
+    "tasks": 39,
+    "windows": 349
+   },
+   "internetarchive/openlibrary": {
+    "tasks": 14,
+    "windows": 91
+   },
+   "qutebrowser/qutebrowser": {
+    "tasks": 43,
+    "windows": 370
+   }
+  },
+  "code": {
+   "c": {
+    "tasks": 6,
+    "windows": 38
+   },
+   "config": {
+    "tasks": 6,
+    "windows": 41
+   },
+   "cpp": {
+    "tasks": 22,
+    "windows": 92
+   },
+   "csharp": {
+    "tasks": 6,
+    "windows": 49
+   },
+   "dart": {
+    "tasks": 5,
+    "windows": 40
+   },
+   "go": {
+    "tasks": 9,
+    "windows": 66
+   },
+   "html_css": {
+    "tasks": 6,
+    "windows": 33
+   },
+   "java": {
+    "tasks": 21,
+    "windows": 89
+   },
+   "javascript": {
+    "tasks": 28,
+    "windows": 124
+   },
+   "kotlin": {
+    "tasks": 6,
+    "windows": 42
+   },
+   "lua": {
+    "tasks": 6,
+    "windows": 43
+   },
+   "php": {
+    "tasks": 6,
+    "windows": 41
+   },
+   "python": {
+    "tasks": 6,
+    "windows": 39
+   },
+   "r": {
+    "tasks": 6,
+    "windows": 41
+   },
+   "ruby": {
+    "tasks": 5,
+    "windows": 36
+   },
+   "rust": {
+    "tasks": 19,
+    "windows": 88
+   },
+   "scala": {
+    "tasks": 5,
+    "windows": 48
+   },
+   "shell": {
+    "tasks": 19,
+    "windows": 72
+   },
+   "sql": {
+    "tasks": 15,
+    "windows": 72
+   },
+   "swift": {
+    "tasks": 5,
+    "windows": 41
+   },
+   "typescript": {
+    "tasks": 14,
+    "windows": 101
+   }
+  },
+  "math": {
+   "gsm8k": {
+    "tasks": 32,
+    "windows": 107
+   },
+   "math": {
+    "tasks": 31,
+    "windows": 177
+   }
+  },
+  "general": {
+   "dolly": {
+    "tasks": 23,
+    "windows": 129
+   },
+   "fineweb_edu": {
+    "tasks": 22,
+    "windows": 147
+   }
+  }
+ },
+ "available_after_heldout": {
+  "agentic": 907,
+  "code": 1059,
+  "math": 254
+ },
+ "largest_exact_N": 1270,
+ "pool": 1270,
+ "pool_buckets": {
+  "agentic": 572,
+  "code": 444,
+  "math": 254
+ },
+ "heldout": 256,
+ "heldout_buckets": {
+  "agentic": 100,
+  "code": 105,
+  "math": 26,
+  "general": 25
+ },
+ "heldout_code_langs": {
+  "c": 5,
+  "config": 5,
+  "cpp": 5,
+  "csharp": 5,
+  "dart": 5,
+  "go": 5,
+  "html_css": 5,
+  "java": 5,
+  "javascript": 5,
+  "kotlin": 5,
+  "lua": 5,
+  "php": 5,
+  "python": 5,
+  "r": 5,
+  "ruby": 5,
+  "rust": 5,
+  "scala": 5,
+  "shell": 5,
+  "sql": 5,
+  "swift": 5,
+  "typescript": 5
+ },
+ "pool_code_langs_at": {
+  "256": {
+   "c": 5,
+   "config": 5,
+   "cpp": 4,
+   "csharp": 5,
+   "dart": 4,
+   "go": 4,
+   "html_css": 5,
+   "java": 4,
+   "javascript": 4,
+   "kotlin": 4,
+   "lua": 5,
+   "php": 4,
+   "python": 4,
+   "r": 4,
+   "ruby": 4,
+   "rust": 4,
+   "scala": 4,
+   "shell": 4,
+   "sql": 4,
+   "swift": 5,
+   "typescript": 4
+  },
+  "512": {
+   "c": 9,
+   "config": 9,
+   "cpp": 8,
+   "csharp": 9,
+   "dart": 8,
+   "go": 8,
+   "html_css": 9,
+   "java": 8,
+   "javascript": 9,
+   "kotlin": 8,
+   "lua": 9,
+   "php": 9,
+   "python": 9,
+   "r": 8,
+   "ruby": 9,
+   "rust": 9,
+   "scala": 8,
+   "shell": 8,
+   "sql": 8,
+   "swift": 9,
+   "typescript": 8
+  },
+  "768": {
+   "c": 13,
+   "config": 13,
+   "cpp": 13,
+   "csharp": 13,
+   "dart": 13,
+   "go": 12,
+   "html_css": 13,
+   "java": 13,
+   "javascript": 13,
+   "kotlin": 12,
+   "lua": 13,
+   "php": 13,
+   "python": 13,
+   "r": 13,
+   "ruby": 13,
+   "rust": 13,
+   "scala": 13,
+   "shell": 12,
+   "sql": 13,
+   "swift": 13,
+   "typescript": 12
+  },
+  "1024": {
+   "c": 17,
+   "config": 17,
+   "cpp": 17,
+   "csharp": 17,
+   "dart": 17,
+   "go": 17,
+   "html_css": 17,
+   "java": 17,
+   "javascript": 17,
+   "kotlin": 17,
+   "lua": 17,
+   "php": 17,
+   "python": 17,
+   "r": 17,
+   "ruby": 17,
+   "rust": 17,
+   "scala": 17,
+   "shell": 17,
+   "sql": 17,
+   "swift": 18,
+   "typescript": 17
+  }
+ }
+}

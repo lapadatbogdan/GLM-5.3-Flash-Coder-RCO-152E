@@ -1,223 +1,234 @@
-# GLM-5.3-Flash-REAP144-Coder
+# GLM-5.3-Flash-Coder-RCO-152E
 
-> **Known issue (15 Oct 2026):** this release was calibrated on Python agentic coding sessions only. Outside that
-> domain it loses general reasoning: it can get simple arithmetic wrong (for example 17 x 23) and often loops on other
-> programming languages and on general questions, at every quant including Q8. A new release, calibrated on a mix of
-> agentic sessions, code in 21 languages and math, is being validated and will replace these files. Until then, use
-> this model for Python agentic coding only.
+[GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) (321B MoE) with **152 of 288 experts per layer**,
+built for coding and agentic use on a home PC. **321B-A18B becomes ~170B-A17B.**
 
-A 321B MoE coding model cut in half for home PCs. We kept 144 of the 288 routed experts in every MoE layer of
-[GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash), chosen on real agentic coding sessions, then quantized
-it with an importance matrix built on the same sessions: **321B-A18B becomes 161B-A17B**.
+Weights (GGUF): [lapadatbogdan/GLM-5.3-Flash-Coder-RCO-152E-GGUF](https://huggingface.co/lapadatbogdan/GLM-5.3-Flash-Coder-RCO-152E-GGUF)
 
-- **Q4_K_M (98 GB) and Q3_K (71 GB) solve 48/48**, like the full 341 GB model, on real repository tasks in a sealed
-  sandbox.
-- **IQ2_S (55 GB) solves 45/48**; **IQ2_XXS (45 GB) fits a 24 GB GPU + 32 GB RAM PC** and is experimental (39/48).
+This repository is the recipe: calibration mix, expert selection with RCO, the final mask, healing, quantization,
+the llama.cpp patches we needed, and the evaluation harness. The scripts are published as we ran them, with our
+paths; expect to adapt them (see [Paths](#paths)).
 
-![Solved agentic coding tasks per variant](assets/results.svg)
+## What changed from REAP144
 
-Weights (GGUF): [lapadatbogdan/GLM-5.3-Flash-REAP144-Coder-GGUF](https://huggingface.co/lapadatbogdan/GLM-5.3-Flash-REAP144-Coder-GGUF)
+| | REAP144 (old) | RCO-152E (this release) |
+|---|---|---|
+| Loop test: problems in 30 hard instruction-following runs | 22 | **4** (0 repetition loops) |
+| 17 x 23, 1234 x 5678, Fibonacci, small executed code task, tool call | arithmetic errors | **pass** at every quant |
+| Experts per layer | 144 | 152 (incl. 8 generalists) |
+| Calibration | Python agentic sessions | agentic sessions + code in 21 languages + math + 15% general text |
 
-This repository is the recipe: expert scoring, masks, pruning, quantization, the llama.cpp patches we needed, and
-the evaluation harness, as we ran them.
+## Files
 
-## Results
-
-30 SWE tasks from three Python repositories (ansible, openlibrary, qutebrowser), 2 attempts each, clean room (no git
-history, no gold patch reachable), 200 turns, 384K context, success = the task's fail-to-pass tests pass.
-Four tasks are left out: three that no model solves (one has a broken environment) and one whose tests sometimes
-pass without a fix. All rows are counted on the **same 48 attempts** (26 tasks x 2, minus 4 attempts that hit our
-12-hour wall-clock limit per attempt on at least one model; they are left out for every model), so the numbers
-compare directly.
-
-| Model | Size | Solved (same 48 attempts) | Turns vs full model |
+| Quant | Size | Fits (GPU VRAM + RAM) | KLD to Q8 |
 |---|---|---|---|
-| GLM-5.3-Flash, full (Q8) | 341 GB | 48/48 | x1.00 |
-| **REAP144 Q8** | 171 GB | 48/48 | x1.21 |
-| **REAP144 Q4_K_M** | 97.6 GB | 48/48 | x1.58 |
-| **REAP144 Q3_K** | 71.4 GB | 48/48 | x1.80 |
-| **REAP144 IQ2_S** (2.5 bit) | 54.8 GB | 45/48 | x1.83 |
-| **REAP144 IQ2_XXS** (2 bit, experimental) | 45.3 GB | 39/48 | x2.77 |
-| Public REAP 50% (multi-domain calibration, healed), Q8 | 175 GB | 44/46 * | x2.29 |
-| Frequency mask, 144 experts, Q8 | 171 GB | 39/43 * | x2.21 |
-| REAP, 120 experts, Q8 | 144 GB | 35/38 * | x2.32 |
+| Q8_0 | 180.4 GB (4 parts) | 24 + 192, multi-GPU | 0 |
+| Q4_K_M | 102.6 GB (3 parts) | 24 + 96, 32 + 96, 128 GB unified | 0.024 |
+| Q3_K | 75.1 GB (2 parts) | 24 + 64, 32 + 64 | 0.045 |
+| IQ2_XXS (GSQ) | ~47 GB | 24 + 32 | in progress |
 
-\* not all attempts run; counted on the attempts finished.
+KLD: llama.cpp `llama-perplexity --kl-divergence` against the Q8_0 of this model on held-out code and agentic text.
+Same top token as Q8: Q4_K_M 94.5%, Q3_K 92.5%.
 
-"Turns vs full model" = total agent turns on attempts both models solved, divided by the full model's turns. It is
-the cost you pay in time: a model that solves the task in twice the turns takes twice as long on your PC.
-Differences of one attempt, or of x1.8 vs x1.9 turns, are within noise.
-Numbers as of 13 Oct 2026.
+A 2-bit version for 24 GB VRAM + 32 GB RAM is in progress (GSQ vector quantization of the experts + quantization-aware
+healing) and will be added when it passes the same tests.
 
-What this says:
-- **Which experts you keep matters more than how many.** At the same 144 experts, the mask scored on code sessions
-  solves the same tasks as the full model with about 20% more turns; a frequency mask or a REAP mask
-  calibrated on a multi-domain corpus needs about twice the turns and fails more.
-- **2.5 bit and up is solid for agentic coding; 2 bit is experimental.** IQ2_XXS is the only version that fits a
-  24 GB GPU + 32 GB RAM PC, and it solves 39 of 48 attempts. Its weak spot is how it fails: 200 turns and no
-  edit at all. Half are loops (one command repeated up to 193 times), half are open-ended exploration that never
-  commits to a fix. It also needs more turns (x2.8 overall). An anti-loop guard in the agent does not fix this (see What did not work); an
-  improved 2 bit version trained on short successful sessions is in progress.
-- **Short questions do not detect a broken agent.** A 2 bit variant of the public prune answered 4/4 short coding
-  questions correctly and solved 0/4 agentic tasks.
+## Results (Q8_0, no special settings)
 
-## Perplexity
+Against the full GLM-5.3-Flash (Q8), same prompts, default sampling:
 
-Perplexity on ~22K tokens of unseen code (11 chunks of 2048), llama.cpp `llama-perplexity`, same file for all:
-
-| Model | PPL | vs full |
+| Benchmark | RCO-152E | Full model |
 |---|---|---|
-| GLM-5.3-Flash, full (Q8) | 1.681 | - |
-| REAP144 Q8 | 2.053 | +22.1% |
-| REAP144 Q4_K_M | 2.062 | +22.7% |
-| REAP144 Q3_K | 2.091 | +24.4% |
-| REAP144 IQ2_S | 2.174 | +29.3% |
-| REAP144 IQ2_XXS | 2.303 | +37.0% |
+| AIME 2025 (20) | 19 | 20 |
+| MATH-500 subset (6) | 6 | 6 |
+| LiveCodeBench subset (6) | 6 | 6 |
+| IFEval (100) | 71 | 83 |
 
-We choose variants by results on agentic tasks; perplexity is shown for reference.
+Agentic results (51 DeepSWE tasks, same harness as the full model): in progress, will be added.
 
-## Hardware
+Held-out KL divergence to the full model (top-20 logits, 256 windows): agentic 0.209, code 0.193, math 0.089,
+general text 0.594.
 
-| File | Size | Fits (GPU VRAM + system RAM) |
-|---|---|---|
-| IQ2_XXS | 45.3 GB | 24 GB + 32 GB (measured) |
-| IQ2_S | 54.8 GB | 32 + 32 at the limit; 24 + 48 or more |
-| Q3_K | 71.4 GB | 24 + 64, 32 + 64 |
-| Q4_K_M | 97.6 GB | 24 + 96, 32 + 96, 128 GB unified memory |
+## Recommended settings
 
-Measured: IQ2_XXS with [Maya](https://github.com/mw00/project-maya) on an RX 7900 XTX (24 GB) + 32 GB DDR4-2133,
-i7-7700K, PCIe 3.0 (a 2017 PC): **~16 tokens/s generation, ~950 tokens/s prompt processing**. That is the floor:
-a newer PC with DDR5 and PCIe 4.0 will be faster.
-
-Measured by a community tester: RTX 4090 (24 GB) + 64 GB DDR5-4800, i9-14900K, PCIe 4.0, Windows 11, Maya v1.1.9
-after `--calibrate`, context 32K:
-
-| File | Generation | Prompt processing (2K / 8K tokens) |
-|---|---|---|
-| IQ2_XXS | **35.9 tokens/s** | 1441 / 2564 tokens/s |
-| IQ2_S | **29.9 tokens/s** | 1092 / 2382 tokens/s |
-| Q3_K | **20.4 tokens/s** | 792 / 2184 tokens/s |
-
-Calibration added 16% (IQ2_XXS) to 50% (Q3_K) generation speed on that PC.
+- **Code and agentic use:** works without special settings.
+- **Long prose (essays, poems) and non-English prompts:** the model can fall into repetition loops; this is where
+  pruning hurts most. A presence penalty of 1.0 reduces it. This model is not meant for creative writing or other
+  languages. Q3_K is more sensitive here than Q8_0 and Q4_K_M; on code and math it behaves like Q8_0.
 
 ## Run
 
-Download one variant into its own folder (split files load directly from the first part):
+Split files load directly; point the runtime at the first part.
 
 ```bash
 pip install -U huggingface_hub
-hf download lapadatbogdan/GLM-5.3-Flash-REAP144-Coder-GGUF --include "*IQ2_XXS*" --local-dir glm53-iq2xxs
+hf download lapadatbogdan/GLM-5.3-Flash-Coder-RCO-152E-GGUF --include "*Q3_K*" --local-dir glm53-rco-q3k
 ```
 
-- **Maya** (made for GLM-5.3-Flash; keeps the most used experts on the GPU and the rest in RAM). This is how we
-  measured the speed above, on AMD with ROCm:
+- **llama.cpp** (tested at `79e2e74`): `llama-server -m glm53-rco-q3k/GLM-5.3-Flash-Coder-RCO-152E-Q3_K-00001-of-00002.gguf --jinja -c 131072`
+  with expert tensors offloaded to CPU as needed (`--n-cpu-moe`).
+- **Maya** (made for GLM-5.3-Flash, hottest experts on the GPU, the rest in RAM):
+  `git clone https://github.com/mw00/project-maya && cd project-maya && ./maya.sh --gguf-dir ../glm53-rco-q3k --no-vision`
+  (add `--backend hip` on AMD).
 
-  ```bash
-  git clone https://github.com/mw00/project-maya && cd project-maya
-  ./maya.sh --gguf-dir ../glm53-iq2xxs --no-vision --backend hip --gpu 0 --context 32768
-  ```
+Text only: no vision projector (mmproj) is included.
 
-  Leave out `--backend hip` on NVIDIA. `--no-vision` because this release is text only. The folder must be writable:
-  Maya writes its index (~1 GB) next to the model files.
-- **llama.cpp** (tested at `79e2e74`): `llama-server -m <first .gguf> --jinja -c 131072`, with expert tensors
-  offloaded to CPU as needed (`--n-cpu-moe`).
-- **2+ GPUs:** an optional MTP draft block (`GLM-5.3-Flash-REAP144-Coder-MTP.gguf`, 2.6 GB) lets Maya draft tokens
-  ahead (`--gpus 0,1 --env STRATA_GLM_MTP_GGUF=<file>`). Its draft matches this model's next token ~70% of the time;
-  the speedup is not measured by us yet. Details on the model card.
+## How it was made
 
-## Recipe
+1. **Calibration mix:** agentic coding sessions written by the full model, code in 21 languages, math, and 15% general
+   text, all outside the evaluation sets (the held-out windows are task-disjoint from the search windows).
+2. **Expert selection with RCO** (optimization of the expert mask against the full model's outputs), 152 experts per
+   layer, started from a REAP-score mask with 8 generalist experts per layer added. Against a REAP-style mask of the
+   same size: same code and agentic KL, 22% lower KL on general text, and far fewer loops. The released mask is the
+   step-400 checkpoint of the search.
+3. **Healing:** LoRA on attention and the shared expert, distilled from the full model's top-20 logits (96 steps),
+   continued from the LoRA of an earlier heal; the router and the routed experts are not trained.
+4. **Build:** prune to an FP8 checkpoint, merge the LoRA, convert to Q8_0, imatrix on the same mix, then Q4_K_M and
+   Q3_K.
 
-1. **Calibration sessions** (`scoring/build_calib.py`): agentic coding sessions written by the full model on tasks
-   that are not in the evaluation set; 512 search windows + 64 held-out windows.
-2. **Expert scores** (`rco/reap_score.py`): one forward pass of the full model over the sessions with its own
-   routing. For each expert: `sum(g * ||f_e(x)||)` over the tokens routed to it, where `g` is the router weight and
-   `f_e(x)` the expert output (REAP, Lasby et al. 2025, summed instead of averaged, so it counts both how often
-   an expert is chosen and how much it contributes).
-3. **Masks** (`masks/`): keep the top 144 per layer. Held-out KL to the full model:
+## Repository layout
 
-   | Experts kept | Frequency | REAP mean | REAP sum |
-   |---|---|---|---|
-   | 144 | 0.94 | 0.85 | **0.73** |
-   | 96 | 1.47 | 1.26 | **1.07** |
+Directory names match our working tree (`/work/glm53/<dir>`), so the paths inside the scripts point at the same
+places as in this repository.
 
-4. **Prune** (`build/build_pruned.py`, `build/stageC.sbatch`): drop experts and router rows, write a HF checkpoint,
-   convert to GGUF.
-5. **Quantize** (`build/*.sbatch`): llama.cpp imatrix on the same code sessions, then Q4_K_M / Q3_K / IQ2_S /
-   IQ2_XXS. KLD to Q8 on code: 0.051 / 0.084 / 0.147 / 0.208.
-6. **Evaluate** (`eval/`): see below.
+| Step | Scripts |
+|---|---|
+| Window format | `calib53/build_calib.py` (chat rendering with reasoning kept, 1024-token windows, loss mask = model-written tokens) |
+| Agentic sessions | `calib53/agent_py.py`, `agent_js.py` (minimal bash-tool agents), `run_py.sh`, `run_js.sh`, `gen_py.sbatch`, `gen_js.sbatch`, `task_prep/pro_gen_prep*.sh` (clean-room task preparation); new sessions for this release: `calib53/mix_v3/agentic_tasks.txt`, `gen_agentic_v3.sbatch`, `run_agentic_v3.sh` |
+| Multi-language edits | `calib53/gen_poly.py`, `gen_poly.sbatch` (CommitPackFT files edited by the full model) |
+| Code / math / general chat sessions | `calib53/mix_v1/collect_prompts.py`, `mix_v2/collect_prompts_v2.py`, `mix_v3/collect_prompts_v3.py` (prompt pools, decontaminated), `mix_v1/gen_mix.py` + `gen_mix.sbatch`, `mix_v2/gen_mix2.sbatch`, `mix_v3/gen_mix3.sbatch` (the full model answers) |
+| Calibration mix (`mix_v3`) | `calib53/mix_v3/build_mix3.py`, `build_mix3.sbatch` (prefix-ordered pool + fixed held-out set; imports `mix_v1/build_mix.py`), `pool_report.json`, `prompts/sources.json`; `rco/make_prefix.py` (the chosen pool size as `mix_v3/N1270`) |
+| General text (`general_v1`) | `calib53/general_v1/build_general.py` |
+| Mixed RCO and heal sets | `calib53/general_v1/make_heal_mix.py` + `add_freq_mix.py` (mix_v3 windows + general windows: `calib53/rco_mixg_v1` for RCO, `calib53/heal_mixg_v1` for healing) |
+| Full-model reference | `rco/rco_prep_v2_mn.py`, `rco_prep_v2_mn.sbatch`, `rco_prep_merge.sbatch` (top-20 logits, expert frequency and REAP statistics, sharded) |
+| Initial mask | `calib53/general_v1/build_mask_plus.py` (REAP-sum mask + 8 generalist experts per layer: `gen_k152`); `rco/build_balanced.py` writes the same `gen_k152` mask next to balanced variants; `rco/reap_score.py`, `reap_score_v2.py`, `reap_score_v2.sbatch` (standalone REAP scorer) |
+| RCO search | `rco/rco_search_v3g_mn.sbatch` (the run used) and `rco_search_v3_mn.sbatch`, `rco/rco_search_v3_mn.py` (multi-node RCO), `rco/rco_glm_prune.py`, `rco/convergence.py`, `rco/src/` (RCO + GLM-5.3 model code), `heal/dsa_fix.py` (DSA attention fix for the torch path on ROCm) |
+| Mask selection | `rco/rcog_k152_select.sh`, `rco/eval_masks_mn.py`, `eval_masks_mn.sbatch` (held-out KL of candidate masks) |
+| Final mask | `masks/mask_rco_k152.pt` |
+| Healing | `heal/heal_v3_rco.sbatch` (first heal, 144-expert RCO mask), `heal/heal_v3_cont.sbatch` (`VARIANT=d`: this release), `heal/heal_v3.py`, `heal/heal_v3_cont.py`, `heal/gguf_experts.py`, `heal/gguf_experts_any.py` |
+| Build | `rebuild_v2/common.sh`, `a1_prune_conv.sbatch` (mask -> pruned FP8 checkpoint -> Q8_0), `h1_merge_conv.sbatch` (LoRA merge -> Q8_0), `a2_imatrix_mix3.sbatch`, `quant.sbatch`; `calib53/rco_mixg_v1/build_imatrix_text.py` (imatrix text); `prune_build/build_pruned.py`; `release/meta.sbatch` (metadata + split for upload) |
+| Evaluation | `smoke/`, `stdbench/`, `swepro/` (see below) |
+| llama.cpp patches | `patches/` |
 
-## llama.cpp patches
+`masks/mask_rco_k152.pt` is a bool tensor `[42, 288]` (42 MoE layers x 288 routed experts), `True` = pruned,
+152 kept in every layer:
 
-`patches/` (llama.cpp `79e2e74`):
-- `llama.cpp-imatrix-glm5_next.patch`: `llama-imatrix` segfaults on GLM-5.3-Flash (graph nodes without `src[0]`);
-  fixed by checking the node type first. Needed to build the importance matrix, not to run the model.
-- `llama.cpp-glm5_next-per-layer-experts.patch`: lets a pruned model keep a different number of experts per layer.
-  Not needed for this release (144 in every layer).
+```python
+import torch
+m = torch.load("masks/mask_rco_k152.pt", weights_only=True)
+kept = (~m[layer]).nonzero().flatten()   # routed expert ids kept in MoE layer `layer`
+```
 
-All released GGUFs were run with llama.cpp `79e2e74` in our evaluation; IQ2_XXS was also measured with Maya.
+### The commands of this release
+
+Reconstructed from the job logs; `P=/work/glm53`.
+
+```bash
+# RCO search, 152 kept per layer, mixed calibration (general text included), init from gen_k152
+cd $P/rco && CALIB=calib53/rco_mixg_v1 KEEP=152 INIT=reap INITMASK=$P/rco_runs/general_plus/mask_gen_k152.pt \
+  INITSCORES= OUT=$P/rco_runs/rcog_k152_v3 sbatch --nodes=2 rco_search_v3g_mn.sbatch
+bash rcog_k152_select.sh                          # step 400 / 500 / 600 masks -> held-out KL; step 400 chosen
+# prune, heal, build
+cd $P/rebuild_v2
+sbatch --export=ALL,TAG=r152v5,MASK=$P/masks/mask_rco_k152.pt a1_prune_conv.sbatch
+sbatch --job-name=healg_d --export=ALL,VARIANT=d $P/heal/heal_v3_cont.sbatch
+sbatch --export=ALL,TAG=r152v5g,SRC=$P/pruned/r152v5,DELTA=$P/heal_runs/r152v5_g1/delta.pt h1_merge_conv.sbatch
+sbatch --export=ALL,TAG=r152v5g,TXT=$P/calib53/rco_mixg_v1/calib_text_search.txt,CHUNKS=1494 a2_imatrix_mix3.sbatch
+sbatch --export=ALL,TAG=r152v5g quant.sbatch Q4KM; sbatch --export=ALL,TAG=r152v5g quant.sbatch Q3K
+sbatch $P/release/meta.sbatch
+```
+
+### Paths
+
+- `/work/glm53`: working tree (this repository), plus `full/` (the base model, HF FP8), `gguf/`, `pruned/`,
+  `out/`, `rco_runs/`, `heal_runs/`, `llama.cpp/` (built at `79e2e74` with the patches below), `vllm-rocm.sif`
+  (a ROCm PyTorch container) and `pylib/` (a transformers build with `glm5_next` support).
+- `/work/tasks`: SWE task images and mined task instances used for the agentic calibration sessions (not included).
+- `/work/swe_scratch`: scratch space for the DeepSWE harness overlays.
+- The `.sbatch` files are Slurm jobs for nodes with 8 GPUs (MI250X GCDs, 64 GB each); `--account` and the
+  partitions are placeholders.
 
 ## Evaluation harness
 
-`eval/agent_py.py` is a minimal bash-tool agent (OpenAI-compatible API, llama.cpp server), `eval/run_eval_py.sh`
-runs it under Singularity with a clean room per attempt.
+- **Basic regression** (`smoke/smoke.py`, `smoke.sbatch`): on every quant, 17 x 23, 1234 x 5678, the 20th Fibonacci
+  number, one knowledge question, a small Python function that is executed against asserts, and one tool call.
+- **Loop gate** (`stdbench/sbatch/std_dry2.sbatch` -> `run_dry2.sh`): hard IFEval prompts, 3 runs each
+  (`data/drytest_ids.txt`), plus small LiveCodeBench and MATH-500 sets, once with default sampling and once with
+  presence penalty 1.0 (`DRY_CFGFILE=data/dry_cfgs_basepres.txt`). This is the loop test in the table above.
+- **Benchmarks** (`stdbench/sbatch/std_gate.sbatch` -> `run_gate.sh`, `run.py`, `benches/`, `report.py`): IFEval,
+  AIME 2025, MATH-500 and LiveCodeBench subsets (`data/verif_ids_a.txt`, `verif_ids_b.txt`) against the full model with
+  the same prompts; code is graded in a sandbox without network. `stdbench/prep/` downloads and prepares the data.
+- **DeepSWE agentic harness** (`swepro/`): `agent_v2.sbatch deepswe <run> <gguf>` -> `run_bench_v2.sh` starts
+  llama-server and the workers, `swe_attempt.py` runs one attempt with
+  [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent) in two containers: the agent works in a clean room
+  (fresh copy of the repository, git history replaced by one commit, no network, checked on every attempt), then the
+  task's official verifier runs in a new container on the collected patch. `deepswe51_ids.txt` lists the 51 tasks,
+  `report.py` summarizes a run. `mini.yaml` is mini-swe-agent's default config (unchanged). `mini_verify.yaml`
+  (made by `mkverify.py` from `mini.yaml`) is an optional step that asks the agent to check each requirement and run
+  the full test suite and type checker before submitting. Task manifests and container images are not included.
 
-**Anti-loop agent.** `eval/agent_py_v2.py` adds three guards, visible only to the model's own tool outputs: a notice
-when a command's output was truncated, a blocker for a command repeated 3 times in a row or 5 times in the last 20
-turns, and a warning for invalid `sed` line ranges. Select it with `AGENT=agent_py_v2.py` (default `agent_py.py`,
-which produced every number in the results table; `AGENT_ANTILOOP=0` turns the guards off in v2):
-
-```bash
-AGENT=agent_py_v2.py K=1 CTXSLOT=393216 TASKLIST=tasks.txt EVAL_GGUF=GLM-5.3-Flash-REAP144-Coder-IQ2_XXS.gguf \
-  GEN_OUT=out/antiloop bash eval/run_eval_py.sh
-```
-
-`eval/eval_tasks_py.txt` lists the 30 tasks (SWE-bench Pro style instances). The scripts are published as we ran
-them, with our paths; expect to adapt them.
-
-**Security notes.** The harness executes commands written by the model. Run it only inside disposable,
-isolated containers on a machine with nothing you care about: the model's commands see the container's environment
-(so do not put API keys there; with a local llama.cpp server none is needed), and a writable overlay is reused
-between attempts of the same worker. The pass/fail check runs the task's tests and rejects edits to test files, but a
-determined model could still change test configuration it does not detect; review successful patches if you build
-on these numbers.
-
-Things we learned the hard way, all visible in the scripts:
-- Our first harness capped agents at 30 turns and 128K context; that cap hid most failures of the full model. Caps
-  you set yourself look like model limits.
-- New files must be added with `git add -N` or they are missing from the patch.
+**Security notes.** The harnesses execute commands written by the model. Run them only inside disposable, isolated
+containers on a machine with nothing you care about: the model's commands see the container's environment (so do not
+put API keys there; with a local llama.cpp server none is needed). In `swepro/` each attempt gets a fresh overlay that
+is deleted afterwards and the agent container has no network; the calibration agents in `calib53/` reuse a writable
+overlay between tasks of the same worker. The pass/fail check runs the task's own tests in a separate container, but a
+determined model could still change test configuration it does not detect; review successful patches if you build on
+these numbers.
 
 ## What did not work
 
-So you do not have to try it. Same tasks and harness as above unless noted; * = not all attempts run.
+So you do not have to try it. Rows marked REAP144 were measured on the earlier Python-only setup (30 SWE tasks,
+2 attempts; see the `reap144` tag); * = not all attempts run.
 
 | Tried | Result | Why it failed |
 |---|---|---|
-| Keep 120 experts (same REAP-sum score) | 35/38 *, x2.32 turns; held-out KL 0.88 | The model starts "thinking" for tens of thousands of tokens without answering, and loops on commands |
-| Keep 96 experts | held-out KL 1.07; ~90 turns per conversation, stopped | Too slow to be useful even when it solves the task |
-| Frequency mask, 144 experts | 39/43 *, x2.21 turns; held-out KL 0.94 | Keeps the most used experts, not the ones that matter for code |
-| Public REAP 50% (multi-domain), 144 experts | 44/46 *, x2.29 turns | Generic calibration; at 2 bit (IQ2_XXS) it answered 4/4 short questions and solved 0/4 tasks |
+| REAP-score mask, 152 experts | same code and agentic KL as RCO, 22% higher general-text KL, more loops | A per-expert score ranks experts one by one; RCO scores the whole mask against the full model's outputs |
+| Keep 120 experts (REAP144 setup, REAP-sum score) | 35/38 *, x2.32 turns; held-out KL 0.88 | The model starts "thinking" for tens of thousands of tokens without answering, and loops on commands |
+| Keep 96 experts (REAP144 setup) | held-out KL 1.07; ~90 turns per conversation, stopped | Too slow to be useful even when it solves the task |
+| Frequency mask, 144 experts (REAP144 setup) | 39/43 *, x2.21 turns; held-out KL 0.94 | Keeps the most used experts, not the ones that matter for code |
+| Public REAP 50% (multi-domain), 144 experts (REAP144 setup) | 44/46 *, x2.29 turns | Generic calibration; at 2 bit (IQ2_XXS) it answered 4/4 short questions and solved 0/4 tasks |
 | 120 experts at 2-2.5 bit (IQ2_S, mixed quant) | 9/12 on a screen; the mixed quant looped in its reasoning | Pruning and low bits compound |
-| RCO search over experts (`rco/`) | held-out KL 1.52 at 144 experts (frequency: 0.94) | Our search scored masks without re-routing tokens of removed experts, and 12,096 keep/drop decisions were too noisy; fixed later (`--reroute`) but not pursued once REAP-sum won |
-| Healing: LoRA distillation from the full model (top-20 logits) | held-out KL 0.728 -> 0.686 at step 16, then 0.984 at step 32; no gain at 2 bit on tasks | Training router and norms diverged at once; LoRA-only diverged after ~16 steps |
-| Anti-loop agent on IQ2_XXS (`eval/agent_py_v2.py`) | 27/37 vs 30/37 with the standard agent, same attempts, same turns | It recovers some looping attempts (4) and loses others (7): blocked, the model finds another loop or keeps exploring instead of editing. The 2 bit problem is behaviour, not a missing brake |
 | GSQ instead of imatrix at ~3 bit | KLD 0.0711 vs 0.0702 (8 of 42 layers) | No gain at 3 bit. GSQ is a scalar method: the lowest llama.cpp scalar format (Q2_K, ~2.6 bits) is above the 2.06-bit size of IQ2_XXS, so it cannot target the 24 + 32 GB variant |
+| Tensor parallel in llama.cpp | not available for this architecture | Use layer split (`-sm layer`); with several concurrent conversations the decode micro-batch patch keeps the GPUs busy |
+| Presence penalty for code | not needed | It helps only on long prose and non-English prompts (see Recommended settings) |
 
-Limits of this study: one language (Python), three repositories, 2 attempts per task; differences of 1-3 attempts
-are noise. Harness limits we hit and removed along the way: a 30-turn cap, a 128K context, and a rule that ended an
-attempt after 3 replies without a command (now 10); affected attempts were rerun.
+## llama.cpp patches
+
+`patches/` (llama.cpp `79e2e74`, details in `patches/README.md`):
+- `llama.cpp-imatrix-glm5_next.patch`: `llama-imatrix` segfaults on GLM-5.3-Flash (graph nodes without `src[0]`);
+  fixed by checking the node type first. Needed to build the importance matrix, not to run the model.
+- `llama.cpp-decode-microbatch.patch`: `LLAMA_DECODE_MICROBATCH=k` splits a multi-sequence decode batch into k
+  micro-batches so a layer-split model keeps all GPUs busy. With 8 concurrent conversations on 8 MI250X GCDs, k=4 gave
+  54.9 tokens/s per node vs 25.6 unpatched (aggregate). Used for the agentic evaluation, not needed to run the model.
+- `llama.cpp-glm5_next-per-layer-experts.patch`: lets a pruned model keep a different number of experts per layer.
+  Not needed for this release (152 in every layer).
+
+## Limits
+
+Built and tested for code and agentic use. Pruning removes knowledge outside that domain: creative writing and
+non-English prompts are the weak spots.
+
+## Previous release
+
+REAP144 (144 experts, calibrated on Python agentic sessions only) is replaced by this release: it looped on general
+questions and on other programming languages and could get simple arithmetic wrong. Its recipe, masks and harness
+remain available in the git history under the tag `reap144`.
 
 ## Acknowledgements
 
-- REAP (Lasby et al., 2025) for the expert-saliency score our mask builds on.
+- RCO and GSQ: IST Austria (ISTA-DASLab).
+- REAP (Lasby et al., 2025) for the expert-saliency score used for the initial mask.
 - This project was built with the help of Claude (Anthropic) as a coding and research assistant.
   The decisions are the author's.
 
 ## Credits and licenses
 
 - Base model: GLM-5.3-Flash by Z.ai, MIT.
+- RCO and GSQ: IST Austria (ISTA-DASLab). `rco/`: based on the RCO reference implementation by Helcig and Alistarh
+  (Apache-2.0, see `rco/LICENSE`, `rco/NOTICE` and `rco/CITATION.cff`), extended with the GLM-5.3-Flash model code and
+  the REAP scorer.
 - REAP expert scoring: Lasby et al., 2025. Public REAP 50% comparison: `patrickbdevaney/GLM-5.3-Flash-REAP50-FP8-v2`.
-- `rco/`: based on the RCO reference implementation by Helcig and Alistarh (Apache-2.0, see `rco/LICENSE` and
-  `rco/CITATION.cff`), extended with the GLM-5.3-Flash model code and the REAP scorer.
+- mini-swe-agent (MIT): `swepro/mini.yaml` is its default config.
 - Runtime: llama.cpp (MIT), Maya (MIT).
 - Everything else in this repository: MIT.
 

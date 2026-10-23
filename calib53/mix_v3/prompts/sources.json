@@ -1,0 +1,123 @@
+{
+ "seed": 3,
+ "plan": [
+  [
+   "math",
+   "gsm8k",
+   18,
+   14
+  ],
+  [
+   "math",
+   "math",
+   18,
+   8
+  ],
+  [
+   "general",
+   "dolly",
+   9,
+   14
+  ],
+  [
+   "general",
+   "fineweb_edu",
+   9,
+   8
+  ]
+ ],
+ "code": {
+  "c": 3,
+  "kotlin": 3,
+  "lua": 3,
+  "r": 3,
+  "python": 2,
+  "config": 2,
+  "csharp": 2,
+  "dart": 2,
+  "html_css": 2,
+  "php": 2,
+  "ruby": 2,
+  "scala": 2,
+  "swift": 2
+ },
+ "per_code_session": 6,
+ "target": 5200,
+ "excluded_used_prompts": 1118,
+ "code_pools": {
+  "c": {
+   "edit": 0,
+   "evol": 223
+  },
+  "kotlin": {
+   "edit": 107,
+   "evol": 24
+  },
+  "lua": {
+   "edit": 208,
+   "evol": 0
+  },
+  "r": {
+   "edit": 16,
+   "evol": 171
+  },
+  "python": {
+   "edit": 0,
+   "evol": 8803
+  },
+  "config": {
+   "edit": 334,
+   "evol": 112
+  },
+  "csharp": {
+   "edit": 409,
+   "evol": 533
+  },
+  "dart": {
+   "edit": 294,
+   "evol": 70
+  },
+  "html_css": {
+   "edit": 262,
+   "evol": 2247
+  },
+  "php": {
+   "edit": 406,
+   "evol": 435
+  },
+  "ruby": {
+   "edit": 408,
+   "evol": 319
+  },
+  "scala": {
+   "edit": 51,
+   "evol": 31
+  },
+  "swift": {
+   "edit": 174,
+   "evol": 133
+  }
+ },
+ "sessions": {
+  "math/gsm8k": 18,
+  "math/math": 18,
+  "general/dolly": 9,
+  "general/fineweb_edu": 9,
+  "code/c": 3,
+  "code/kotlin": 3,
+  "code/lua": 3,
+  "code/r": 3,
+  "code/python": 2,
+  "code/config": 2,
+  "code/csharp": 2,
+  "code/dart": 2,
+  "code/html_css": 2,
+  "code/php": 2,
+  "code/ruby": 2,
+  "code/scala": 2,
+  "code/swift": 2
+ },
+ "n_sessions": 84,
+ "n_prompts": 774,
+ "created": "2026-10-15 05:53:12"
+}
