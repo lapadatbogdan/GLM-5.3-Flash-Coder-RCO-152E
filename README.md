@@ -51,10 +51,36 @@ general text 0.594.
 
 ## Recommended settings
 
-- **Code and agentic use:** works without special settings.
+- **Q8_0, code and agentic use:** works without special settings.
+- **Q4_K_M and Q3_K, code:** ban the "hmm" tokens (see below). Without it, these files can loop on harder exercises.
 - **Long prose (essays, poems) and non-English prompts:** the model can fall into repetition loops; this is where
   pruning hurts most. A presence penalty of 1.0 reduces it. This model is not meant for creative writing or other
-  languages. Q3_K is more sensitive here than Q8_0 and Q4_K_M; on code and math it behaves like Q8_0.
+  languages.
+
+### The "hmm" loop at Q4_K_M and Q3_K
+
+On harder coding exercises the quantized files can get stuck in their reasoning: the model hesitates ("hmm"),
+repeats it ("hmm, hmm, hmm, ...") until the token limit and never writes the code. Once one attempt has looped, the
+next attempts with that reasoning in the history loop again within a few thousand characters.
+
+Aider Polyglot, up to 10 attempts per exercise, exercises on which a file looped (runs in progress):
+
+| File | Exercises with a loop |
+|---|---|
+| Q8_0 | 0 of 19 |
+| Q4_K_M | 2 of 15 |
+| Q3_K | 4 of 14 |
+
+Banning the three "hmm" tokens of this tokenizer removes it. With the ban, Q3_K solved all 3 exercises it had looped
+on (2 of them on the first attempt). Q4_K_M loops the same way and should get the same setting.
+
+- **llama.cpp** (applies to every request): add
+  `--logit-bias 86776-100 --logit-bias 79380-100 --logit-bias 87459-100` to `llama-server`.
+- **Per request** (OpenAI-compatible API, also Maya): `"logit_bias": {"86776": -100, "79380": -100, "87459": -100}`.
+
+Token ids: 86776 = " hmm", 79380 = "Hmm", 87459 = " Hmm". What did not fix this loop in our tests: a presence penalty
+(the reasoning no longer repeats but does not end either) and a reasoning budget of 16K tokens (helped on 1 of 3
+exercises).
 
 ## Run
 
@@ -65,7 +91,7 @@ pip install -U huggingface_hub
 hf download lapadatbogdan/GLM-5.3-Flash-Coder-RCO-152E-GGUF --include "*Q3_K*" --local-dir glm53-rco-q3k
 ```
 
-- **llama.cpp** (tested at `79e2e74`): `llama-server -m glm53-rco-q3k/GLM-5.3-Flash-Coder-RCO-152E-Q3_K-00001-of-00002.gguf --jinja -c 131072`
+- **llama.cpp** (tested at `79e2e74`): `llama-server -m glm53-rco-q3k/GLM-5.3-Flash-Coder-RCO-152E-Q3_K-00001-of-00002.gguf --jinja -c 131072 --logit-bias 86776-100 --logit-bias 79380-100 --logit-bias 87459-100`
   with expert tensors offloaded to CPU as needed (`--n-cpu-moe`).
 - **Maya** (made for GLM-5.3-Flash, hottest experts on the GPU, the rest in RAM):
   `git clone https://github.com/mw00/project-maya && cd project-maya && ./maya.sh --gguf-dir ../glm53-rco-q3k --no-vision`
