@@ -14,7 +14,7 @@ paths; expect to adapt them (see [Paths](#paths)).
 | | REAP144 (old) | RCO-152E (this release) |
 |---|---|---|
 | Loop test: problems in 30 hard instruction-following runs | 22 | **4** (0 repetition loops) |
-| 17 x 23, 1234 x 5678, Fibonacci, small executed code task, tool call | arithmetic errors | **pass** at every quant (Q3_K missed Fibonacci once in one run) |
+| 17 x 23, 1234 x 5678, Fibonacci, small executed code task, tool call | arithmetic errors | **pass** at every quant (Q3_K_M missed Fibonacci once in one run) |
 | Experts per layer | 144 | 152 (incl. 8 generalists) |
 | Calibration | Python agentic sessions | agentic sessions + code in 21 languages + math + 15% general text |
 
@@ -24,11 +24,11 @@ paths; expect to adapt them (see [Paths](#paths)).
 |---|---|---|---|
 | Q8_0 | 180.4 GB (4 parts) | 24 + 192, multi-GPU | 0 |
 | Q4_K_M | 102.6 GB (3 parts) | 24 + 96, 32 + 96, 128 GB unified | 0.024 |
-| Q3_K | 75.1 GB (2 parts) | 24 + 64, 32 + 64 | 0.045 |
+| Q3_K_M | 75.1 GB (2 parts) | 24 + 64, 32 + 64 | 0.045 |
 | IQ2_XXS (GSQ) | ~47 GB | 24 + 32 | in progress |
 
 KLD: llama.cpp `llama-perplexity --kl-divergence` against the Q8_0 of this model on held-out code and agentic text.
-Same top token as Q8: Q4_K_M 94.5%, Q3_K 92.5%.
+Same top token as Q8: Q4_K_M 94.5%, Q3_K_M 92.5%.
 
 A 2-bit version for 24 GB VRAM + 32 GB RAM is in progress (GSQ vector quantization of the experts + quantization-aware
 healing) and will be added when it passes the same tests.
@@ -52,12 +52,12 @@ general text 0.594.
 ## Recommended settings
 
 - **Q8_0, code and agentic use:** works without special settings.
-- **Q4_K_M and Q3_K, code:** ban the "hmm" tokens (see below). Without it, these files can loop on harder exercises.
+- **Q4_K_M and Q3_K_M, code:** ban the "hmm" tokens (see below). Without it, these files can loop on harder exercises.
 - **Long prose (essays, poems) and non-English prompts:** the model can fall into repetition loops; this is where
   pruning hurts most. A presence penalty of 1.0 reduces it. This model is not meant for creative writing or other
   languages.
 
-### The "hmm" loop at Q4_K_M and Q3_K
+### The "hmm" loop at Q4_K_M and Q3_K_M
 
 On harder coding exercises the quantized files can get stuck in their reasoning: the model hesitates ("hmm"),
 repeats it ("hmm, hmm, hmm, ...") until the token limit and never writes the code. Once one attempt has looped, the
@@ -69,9 +69,9 @@ Aider Polyglot, up to 10 attempts per exercise, exercises on which a file looped
 |---|---|
 | Q8_0 | 0 of 19 |
 | Q4_K_M | 2 of 15 |
-| Q3_K | 4 of 14 |
+| Q3_K_M | 4 of 14 |
 
-Banning the three "hmm" tokens of this tokenizer removes it. With the ban, Q3_K solved all 3 exercises it had looped
+Banning the three "hmm" tokens of this tokenizer removes it. With the ban, Q3_K_M solved all 3 exercises it had looped
 on (2 of them on the first attempt). Q4_K_M loops the same way and should get the same setting.
 
 - **llama.cpp** (applies to every request): add
@@ -88,10 +88,10 @@ Split files load directly; point the runtime at the first part.
 
 ```bash
 pip install -U huggingface_hub
-hf download lapadatbogdan/GLM-5.3-Flash-Coder-RCO-152E-GGUF --include "*Q3_K*" --local-dir glm53-rco-q3k
+hf download lapadatbogdan/GLM-5.3-Flash-Coder-RCO-152E-GGUF --include "*Q3_K_M*" --local-dir glm53-rco-q3k
 ```
 
-- **llama.cpp** (tested at `79e2e74`): `llama-server -m glm53-rco-q3k/GLM-5.3-Flash-Coder-RCO-152E-Q3_K-00001-of-00002.gguf --jinja -c 131072 --logit-bias 86776-100 --logit-bias 79380-100 --logit-bias 87459-100`
+- **llama.cpp** (tested at `79e2e74`): `llama-server -m glm53-rco-q3k/GLM-5.3-Flash-Coder-RCO-152E-Q3_K_M-00001-of-00002.gguf --jinja -c 131072 --logit-bias 86776-100 --logit-bias 79380-100 --logit-bias 87459-100`
   with expert tensors offloaded to CPU as needed (`--n-cpu-moe`).
 - **Maya** (made for GLM-5.3-Flash, hottest experts on the GPU, the rest in RAM):
   `git clone https://github.com/mw00/project-maya && cd project-maya && ./maya.sh --gguf-dir ../glm53-rco-q3k --no-vision`
@@ -110,7 +110,7 @@ Text only: no vision projector (mmproj) is included.
 3. **Healing:** LoRA on attention and the shared expert, distilled from the full model's top-20 logits (96 steps),
    continued from the LoRA of an earlier heal; the router and the routed experts are not trained.
 4. **Build:** prune to an FP8 checkpoint, merge the LoRA, convert to Q8_0, imatrix on the same mix, then Q4_K_M and
-   Q3_K.
+   Q3_K_M.
 
 ## Repository layout
 
