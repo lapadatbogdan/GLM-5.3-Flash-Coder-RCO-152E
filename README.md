@@ -9,6 +9,13 @@ This repository is the recipe: calibration mix, expert selection with RCO, the f
 the llama.cpp patches we needed, and the evaluation harness. The scripts are published as we ran them, with our
 paths; expect to adapt them (see [Paths](#paths)).
 
+> **Update (October 31, 2026): 2-bit files for 24 GB VRAM + 32 GB RAM, and an anti-loop fine-tune.** A small LoRA
+> trained with verifiable-reward RL (GRPO with distillation from the full model) on multi-language coding tasks removes
+> the reasoning loops of the quantized files. It is merged into the republished Q3_K_M and Q4_K_M (October 29) and into
+> the new IQ2_XXS and IQ2_XXS-downIQ2_S files (October 31). The "hmm" logit bias is no longer needed for these files.
+> Q8_0 is unchanged: it does not show the loop. Details in [Anti-loop fine-tune](#anti-loop-fine-tune) and
+> [2-bit files](#2-bit-files).
+
 ## What changed from REAP144
 
 | | REAP144 (old) | RCO-152E (this release) |
@@ -20,18 +27,62 @@ paths; expect to adapt them (see [Paths](#paths)).
 
 ## Files
 
-| Quant | Size | Fits (GPU VRAM + RAM) | KLD to Q8 |
+| Quant | Size | Fits (GPU VRAM + RAM) | KLD to Q8 (before the fine-tune) |
 |---|---|---|---|
 | Q8_0 | 180.4 GB (4 parts) | 24 + 192, multi-GPU | 0 |
 | Q4_K_M | 102.6 GB (3 parts) | 24 + 96, 32 + 96, 128 GB unified | 0.024 |
 | Q3_K_M | 75.1 GB (2 parts) | 24 + 64, 32 + 64 | 0.045 |
-| IQ2_XXS (GSQ) | ~47 GB | 24 + 32 | in progress |
+| IQ2_XXS (GSQ) | 47.4 GB (1 file) | 24 + 32 | 0.121 |
+| IQ2_XXS-downIQ2_S (GSQ) | 50.8 GB (2 parts) | 24 + 32 | 0.115 |
 
 KLD: llama.cpp `llama-perplexity --kl-divergence` against the Q8_0 of this model on held-out code and agentic text.
-Same top token as Q8: Q4_K_M 94.5%, Q3_K_M 92.5%.
+Same top token as Q8: Q4_K_M 94.5%, Q3_K_M 92.5%, IQ2_XXS-downIQ2_S 88.3%, IQ2_XXS 88.1%.
 
-A 2-bit version for 24 GB VRAM + 32 GB RAM is in progress (GSQ vector quantization of the experts + quantization-aware
-healing) and will be added when it passes the same tests.
+SHA256 for every file is on the [Hugging Face page](https://huggingface.co/lapadatbogdan/GLM-5.3-Flash-Coder-RCO-152E-GGUF).
+
+## Anti-loop fine-tune
+
+The quantized files could get stuck in their reasoning on harder coding exercises (see
+[the "hmm" loop](#the-hmm-loop-at-q4_k_m-and-q3_k_m-files-before-october-29)). We trained a small LoRA with
+verifiable-reward RL on multi-language coding tasks: a looping answer gets no reward, a finished wrong answer a small
+one, a correct answer (tests pass) the full reward, with distillation toward the full model to keep its behavior
+elsewhere. Measured on Q3_K_M with the fine-tune applied as an adapter (40 held-out coding tasks x 2, and the Aider
+"hmm" test, no logit bias):
+
+| Q3_K_M | Before | After |
+|---|---|---|
+| Held-out coding tasks: looping runs | 11 of 80 | **0 of 80** |
+| Held-out coding tasks: solved | 46 of 80 | **51 of 80** |
+| Aider "hmm" test: exercises with a loop | 4 of 14 | **0 of 14** (14 of 14 solved) |
+
+It does not add knowledge back: on general-knowledge questions the only gain came from fewer unfinished answers. The
+merge was done in F32 (a BF16 merge lost part of the small delta) and only the attention and shared-expert tensors
+change. The previous Q3_K_M / Q4_K_M files remain in the Hugging Face repository history.
+
+## 2-bit files
+
+Made for **24 GB VRAM + 32 GB RAM**. The routed experts are 2-bit (IQ2_XXS, improved with GSQ vector quantization);
+attention, the shared expert and the dense layers keep the Q4_K_M types. Both files contain the anti-loop fine-tune.
+
+- `IQ2_XXS`: every routed expert in IQ2_XXS. 47.4 GB, one file.
+- `IQ2_XXS-downIQ2_S`: the expert down projections in IQ2_S instead. 50.8 GB, 2 parts. Lower KLD; take it if it fits.
+
+With the fine-tune applied as an adapter (40 held-out coding tasks x 2, no logit bias):
+
+| | IQ2_XXS before | IQ2_XXS after | IQ2_XXS-downIQ2_S before | IQ2_XXS-downIQ2_S after |
+|---|---|---|---|---|
+| Held-out coding tasks: looping runs | 19 of 79 | **2 of 78** | 25 of 80 | **1 of 80** |
+| Held-out coding tasks: solved | 44 of 79 | 43 of 78 | 37 of 80 | **47 of 80** |
+
+Aider "hmm" test (8 exercises, up to 10 attempts): before the fine-tune IQ2_XXS solved 3 of 8 and looped on 6 of 8.
+After: IQ2_XXS solved 5 of 8 (one exercise still looped and did not finish in the time limit), IQ2_XXS-downIQ2_S
+solved 6 of 8 without a loop.
+
+The published (merged) files, tested as uploaded on the first sample of each task: IQ2_XXS 1 looping run and 22 solved
+of 39, IQ2_XXS-downIQ2_S 1 looping run and 21 solved of 38 (before the fine-tune: 12 and 13 looping runs of 40).
+
+At 2 bits the model finishes long agentic tasks without looping but misses more details than Q8: treat it as an
+assistant whose work you check.
 
 ## Results (Q8_0, no special settings)
 
@@ -52,12 +103,16 @@ general text 0.594.
 ## Recommended settings
 
 - **Q8_0, code and agentic use:** works without special settings.
-- **Q4_K_M and Q3_K_M, code:** ban the "hmm" tokens (see below). Without it, these files can loop on harder exercises.
+- **Q4_K_M, Q3_K_M and the 2-bit files, code:** no special settings with the current files (anti-loop fine-tune
+  merged). Files downloaded before October 29: ban the "hmm" tokens (see below).
 - **Long prose (essays, poems) and non-English prompts:** the model can fall into repetition loops; this is where
   pruning hurts most. A presence penalty of 1.0 reduces it. This model is not meant for creative writing or other
   languages.
 
-### The "hmm" loop at Q4_K_M and Q3_K_M
+### The "hmm" loop at Q4_K_M and Q3_K_M (files before October 29)
+
+This section describes the files published on October 22. The current Q3_K_M and Q4_K_M no longer need the ban.
+
 
 On harder coding exercises the quantized files can get stuck in their reasoning: the model hesitates ("hmm"),
 repeats it ("hmm, hmm, hmm, ...") until the token limit and never writes the code. Once one attempt has looped, the
@@ -91,8 +146,9 @@ pip install -U huggingface_hub
 hf download lapadatbogdan/GLM-5.3-Flash-Coder-RCO-152E-GGUF --include "*Q3_K_M*" --local-dir glm53-rco-q3k
 ```
 
-- **llama.cpp** (tested at `79e2e74`): `llama-server -m glm53-rco-q3k/GLM-5.3-Flash-Coder-RCO-152E-Q3_K_M-00001-of-00002.gguf --jinja -c 131072 --logit-bias 86776-100 --logit-bias 79380-100 --logit-bias 87459-100`
-  with expert tensors offloaded to CPU as needed (`--n-cpu-moe`).
+- **llama.cpp** (tested at `79e2e74`): `llama-server -m glm53-rco-q3k/GLM-5.3-Flash-Coder-RCO-152E-Q3_K_M-00001-of-00002.gguf --jinja -c 131072`
+  with expert tensors offloaded to CPU as needed (`--n-cpu-moe`). For 24 GB VRAM + 32 GB RAM download
+  `--include "*IQ2_XXS-downIQ2_S*"` (or `"*IQ2_XXS.gguf"`) and point `-m` at its first part.
 - **Maya** (made for GLM-5.3-Flash, hottest experts on the GPU, the rest in RAM):
   `git clone https://github.com/mw00/project-maya && cd project-maya && ./maya.sh --gguf-dir ../glm53-rco-q3k --no-vision`
   (add `--backend hip` on AMD).
